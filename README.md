@@ -36,24 +36,101 @@ Terraform has two components to achieve this:
 
 ## Basic Syntax
 
-HCL syntax comprises of Stanzas or blocks that take in input labels and arguments. arguments are key = value pairs. Terraform accepts values of type string, number, boolean, map, and list. Single line comments start with #, while multi-line comments use an opening /_ and a closing _/.
+**Arguments**
+
+The Terraform language syntax is built around two key syntax constructs: arguments and blocks. An argument assigns a value to a particular name:
+
+```hcl
+image_id = "abc123"
+```
+
+The identifier before the equals sign is the argument name, and the expression after the equals sign is the argument's value.
+
+The context where the argument appears determines what value types are valid (for example, each resource type has a schema that defines the types of its arguments), but many arguments accept arbitrary expressions, which allow the value to either be specified literally or generated from other values programmatically.
+
+> Note: Terraform's configuration language is based on a more general language called HCL, and HCL's documentation usually uses the word "attribute" instead of "argument." These words are similar enough to be interchangeable in this context, and experienced Terraform users might use either term in casual conversation. But because Terraform also interacts with several other things called "attributes" (in particular, Terraform resources have attributes like id that can be referenced from expressions but can't be assigned values in configuration), we've chosen to use "argument" in the Terraform documentation when referring to this syntax construct.
+
+**Blocks**
+
+A block is a container for other content:
 
 ```hcl
 resource "aws_instance" "example" {
-  ami           = "ami-0c55b159cbfafe1f0"
-  instance_type = "t2.micro"
+  ami = "abc123"
+
+  network_interface {
+    # ...
+  }
 }
 ```
 
-In the above block the text `resource` is block name. `aws_instance` is the resource type (The `_` is a separtor. `aws` is the provider and `instance` is the resource) and `example` is the resource name. `ami` and `instance_type` are arguments with keys and values. There few types of blocks in HCL. Let's look at them.
+A block has a type (resource in this example). Each block type defines how many labels must follow the type keyword. The resource block type expects two labels, which are aws_instance and example in the example above. A particular block type may have any number of required labels, or it may require none as with the nested network_interface block type.
+
+After the block type keyword and any labels, the block body is delimited by the { and } characters. Within the block body, further arguments and blocks may be nested, creating a hierarchy of blocks and their associated arguments.
+
+The Terraform language uses a limited number of top-level block types, which are blocks that can appear outside of any other block in a configuration file. Most of Terraform's features (including resources, input variables, output values, data sources, etc.) are implemented as top-level blocks.
+
+Identifiers
+Argument names, block type names, and the names of most Terraform-specific constructs like resources, input variables, etc. are all identifiers.
+
+Identifiers can contain letters, digits, underscores (\_), and hyphens (-). The first character of an identifier must not be a digit, to avoid ambiguity with literal numbers.
+
+For complete identifier rules, Terraform implements the Unicode identifier syntax, extended to include the ASCII hyphen character -.
+
+Comments
+The Terraform language supports three different syntaxes for comments:
+
+```hcl
+# begins a single-line comment, ending at the end of the line.
+```
+
+// also begins a single-line comment, as an alternative to #.
+/_ and _/ are start and end delimiters for a comment that might span over multiple lines.
+The # single-line comment style is the default comment style and should be used in most cases. Automatic configuration formatting tools may automatically transform // comments into # comments, since the double-slash style is not idiomatic.
+
+Character Encoding and Line Endings
+Terraform configuration files must always be UTF-8 encoded. While the delimiters of the language are all ASCII characters, Terraform accepts non-ASCII characters in identifiers, comments, and string values.
+
+Terraform accepts configuration files with either Unix-style line endings (LF only) or Windows-style line endings (CR then LF), but the idiomatic style is to use the Unix convention, and so automatic configuration formatting tools may automatically transform CRLF endings to LF.
+
+Let's take a look at few of the blocks and arguments that we will be using in our examples.
 
 ### Providers
 
-Provider block takes in one input label which the name of the provider. The attributes defined in a given terraform provider dependds on the provider itself.
+Provider block takes in one input label which the name of the provider. The attributes defined in a given terraform provider depends on the provider itself. The following provider block is for Oracle Cloud Infrastructure and requires attributes like `tenancy_ocid`, `user_ocid`, `fingerprint`, `private_key_path` and `region`.
 
 ```hcl
-provider "aws" {
+# Configure the OCI provider with an API Key
+# tenancy_ocid is the compartment OCID for the root compartment
+provider "oci" {
+  tenancy_ocid = var.tenancy_ocid
+  user_ocid = var.user_ocid
+  fingerprint = var.fingerprint
+  private_key_path = var.private_key_path
   region = var.region
+}
+```
+
+Sometimes you are targetting more than one provider in your terraform configuration. In that case you can define multiple provider blocks. In this case you can use the `alias` attribute to give a name to the provider. For example if you are targetting both AWS and OCI you can define two provider blocks like the following.
+
+```hcl
+# Configure the OCI provider with an API Key
+# tenancy_ocid is the compartment OCID for the root compartment
+provider "oci" {
+  alias = "oci"
+  tenancy_ocid = var.tenancy_ocid
+  user_ocid = var.user_ocid
+  fingerprint = var.fingerprint
+  private_key_path = var.private_key_path
+  region = var.region
+}
+
+# Configure the AWS provider with an API Key
+provider "aws" {
+  alias = "aws"
+  region = var.aws_region
+  access_key = var.aws_access_key
+  secret_key = var.aws_secret_key
 }
 ```
 
@@ -238,6 +315,21 @@ If your storing your state file remotely you need to make sure you are in sync w
 terraform state pull
 ```
 
+**Sensitive Data in State**
+
+Terraform state can contain sensitive data, depending on the resources in use and your definition of "sensitive." The state contains resource IDs and all resource attributes. For resources such as databases, this may contain initial passwords.
+When using local state, state is stored in plain-text JSON files.
+
+When using remote state, state is only ever held in memory when used by Terraform. It may be encrypted at rest, but this depends on the specific remote state backend.
+
+**Recommendations**
+If you manage any sensitive data with Terraform (like database passwords, user passwords, or private keys), treat the state itself as sensitive data. Storing state remotely can provide better security. As of Terraform 0.9, Terraform does not persist state to the local disk when remote state is in use, and some backends can be configured to encrypt the state data at rest.
+
+For example:
+
+- Terraform Cloud always encrypts state at rest and protects it with TLS in transit. Terraform Cloud also knows the identity of the user requesting state and maintains a history of state changes. This can be used to control access and track activity.
+- The S3 backend supports encryption at rest when the encrypt option is enabled. IAM policies and logging can be used to identify any invalid access. Requests for the state go over a TLS connection.
+
 ## Best practices
 
 ### State and statefile best practices
@@ -247,6 +339,7 @@ terraform state pull
 3. To avoid a scenario where two developers are changing the same resource at the same time, use a locking mechanism (State locking). Terraform Cloud provides a locking mechanism out of the box. S3 also supports state locking using DynamoDB. NOTE: Not all storage solutions provide this functionality.
 4. Backup your state file or better yet, use versioning. S3 has this feature so you can enable it.
 5. Usually you will have multiple deployment environments to manage thus multiple state files. Use 1 state file per environment and remote state storage solution.
+6.
 
 ### Terraform configuration best practices
 
